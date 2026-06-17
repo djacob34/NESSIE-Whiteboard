@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NESSIE - WP3 & WP4 Timeline Board</title>
+<style>
+  :root{
+    --navy:#2F5496; --blue:#7AAADB; --teal:#6AC5B3; --ink:#2b2b2b; --muted:#6b7280;
+    --line:#dfe4ea; --bg:#f4f6f9; --panel:#ffffff;
+    --gutter:148px; --mw:94px; --laneh:78px; --headerh:40px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+  header.top{display:flex;align-items:center;gap:14px;padding:10px 18px;background:var(--navy);color:#fff;flex-wrap:wrap}
+  header.top h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.2px}
+  header.top .sub{font-size:12px;opacity:.8}
+  .spacer{flex:1}
+  .presence{font-size:12px;background:rgba(255,255,255,.15);padding:4px 10px;border-radius:20px;display:flex;align-items:center;gap:6px}
+  .dot{width:8px;height:8px;border-radius:50%;background:#7CFFB2;display:inline-block}
+  .tabs{display:flex;gap:6px;padding:10px 18px 0;flex-wrap:wrap}
+  .tab{border:1px solid var(--line);background:#fff;color:var(--navy);padding:7px 14px;border-radius:8px 8px 0 0;cursor:pointer;font-size:13px;font-weight:600}
+  .tab.active{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .toolbar{display:flex;align-items:center;gap:8px;padding:10px 18px;flex-wrap:wrap}
+  .btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:13px;color:var(--navy);font-weight:600}
+  .btn:hover{background:#eef4fb}
+  .btn.primary{background:var(--teal);border-color:var(--teal);color:#fff}
+  .btn.danger{color:#b23b34;border-color:#f0c9c5}
+  .hint{font-size:12px;color:var(--muted)}
+  .wrap{display:flex;gap:0;align-items:flex-start;padding:0 18px 18px}
+  .scroll{flex:1;overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+  .board{display:grid;position:relative}
+  .corner{position:sticky;left:0;z-index:6;background:#fff;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .months{position:relative;border-bottom:1px solid var(--line);background:#fbfcfe}
+  .months .m{position:absolute;top:0;height:var(--headerh);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--navy);border-left:1px solid var(--line)}
+  .months .m.rep{color:var(--muted);background:#f1f2f4}
+  .lanes{position:sticky;left:0;z-index:5;background:#fff;border-right:1px solid var(--line)}
+  .lanes .ln{display:flex;align-items:center;padding:0 12px;font-size:12px;font-weight:600;color:#3a4252;border-bottom:1px solid var(--line)}
+  .canvas{position:relative}
+  .gl{position:absolute;top:0;bottom:0;width:1px;background:var(--line)}
+  .ls{position:absolute;left:0;right:0;height:1px;background:var(--line)}
+  .repband{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(45deg,#eceef1,#eceef1 8px,#f4f5f7 8px,#f4f5f7 16px);opacity:.8}
+  .repband .lbl{position:absolute;top:6px;left:8px;font-size:10px;color:#8a909a;font-weight:600;writing-mode:initial}
+  .bar{position:absolute;height:54px;border-radius:9px;box-shadow:0 1px 2px rgba(0,0,0,.14);cursor:grab;overflow:hidden;border:1px solid rgba(0,0,0,.08);user-select:none}
+  .bar .lab{padding:6px 9px;font-size:11.5px;font-weight:600;color:#243018;line-height:1.18;pointer-events:none}
+  .bar .own{position:absolute;bottom:4px;left:9px;font-size:9.5px;color:rgba(0,0,0,.55);pointer-events:none;font-weight:600}
+  .bar.sel{outline:2px solid var(--navy);outline-offset:1px;box-shadow:0 3px 10px rgba(47,84,150,.3)}
+  .bar .grip{position:absolute;top:0;right:0;width:10px;height:100%;cursor:ew-resize;background:linear-gradient(90deg,transparent,rgba(0,0,0,.10))}
+  .inspector{width:264px;margin-left:14px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;flex-shrink:0}
+  .inspector h3{margin:0 0 10px;font-size:13px;color:var(--navy)}
+  .inspector label{display:block;font-size:11px;color:var(--muted);margin:10px 0 3px;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+  .inspector input,.inspector select{width:100%;padding:7px 8px;border:1px solid var(--line);border-radius:7px;font-size:13px;font-family:inherit}
+  .swatches{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+  .sw{width:26px;height:26px;border-radius:6px;cursor:pointer;border:2px solid transparent}
+  .sw.on{border-color:var(--navy)}
+  .empty{color:var(--muted);font-size:13px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;padding:4px 18px 12px}
+  .legend .it{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#444}
+  .legend .chip{width:16px;height:16px;border-radius:4px;border:1px solid rgba(0,0,0,.08)}
+  .row2{display:flex;gap:8px}
+  .row2 > div{flex:1}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>NESSIE &middot; WP3 + WP4 Implementation Timeline</h1>
+  <span class="sub">Sep 2026 &rarr; Jun 2027 &nbsp;|&nbsp; live collaborative board</span>
+  <span class="spacer"></span>
+  <span class="presence"><span class="dot"></span><span id="presence">1</span> online</span>
+</header>
+
+<div class="tabs" id="tabs"></div>
+
+<div class="toolbar">
+  <button class="btn primary" id="addBtn">+ Add activity</button>
+  <button class="btn" id="pngBtn">Download PNG</button>
+  <button class="btn danger" id="resetBtn">Reset this board</button>
+  <span class="hint">Drag a bar to move it &middot; drag its right edge to change duration &middot; click to edit.</span>
+</div>
+
+<div class="legend" id="legend"></div>
+
+<div class="wrap">
+  <div class="scroll"><div class="board" id="board"></div></div>
+  <div class="inspector" id="inspector"><h3>Inspector</h3><div class="empty">Select a bar to edit its label, owner, colour and lane. Use <b>+ Add activity</b> to create one.</div></div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+const GUTTER=148, MW=94, LANEH=78, HEADERH=40, UNIT=MW/30, BARH=54, BARPAD=12, MINLEN=3;
+const BOARDS=[["ameland","Ameland"],["samso","Samso"],["borkum","Borkum"],["morbihan","Morbihan"],["wp4","WP4 - shared"]];
+const PALETTE=[
+  ["#FFE27A","SACs"],["#B7E1A1","Traineeships"],["#9FE0D3","ET-Intensives"],["#A9CCEC","E-Campus"],
+  ["#F6BE99","Teacher training"],["#EEB8DA","Digitalisation"],["#C9B3E6","WP4 Replication"],["#F0AFA9","Milestones"]
+];
+let STATE={}, META=null, current="ameland", selId=null, pendingSelect=null;
+const socket=io();
+
+socket.on("init", ({state,meta})=>{ STATE=state; META=meta; buildTabs(); buildLegend(); render(); });
+socket.on("presence", n=>{ document.getElementById("presence").textContent=n; });
+socket.on("item:upsert", ({board,item})=>{
+  const b=STATE[board]; if(!b) return;
+  const i=b.items.findIndex(x=>x.id===item.id);
+  if(i>=0) b.items[i]=item; else b.items.push(item);
+  if(board===current){ render(); if(pendingSelect===item.id){ selId=item.id; pendingSelect=null; } if(selId) renderInspector(); markSel(); }
+});
+socket.on("item:remove", ({board,id})=>{
+  const b=STATE[board]; if(!b) return;
+  b.items=b.items.filter(x=>x.id!==id);
+  if(board===current){ if(selId===id) selId=null; render(); }
+});
+socket.on("board:replace", ({board,data})=>{ STATE[board]=data; if(board===current){ selId=null; render(); } });
+
+function emitUpsert(item){ socket.emit("item:upsert",{board:current,item}); }
+
+function buildTabs(){
+  const t=document.getElementById("tabs"); t.innerHTML="";
+  BOARDS.forEach(([id,name])=>{
+    const el=document.createElement("div"); el.className="tab"+(id===current?" active":""); el.textContent=name;
+    el.onclick=()=>{ current=id; selId=null; buildTabs(); render(); };
+    t.appendChild(el);
+  });
+}
+function buildLegend(){
+  const l=document.getElementById("legend"); l.innerHTML="";
+  PALETTE.forEach(([hex,name])=>{
+    const it=document.createElement("div"); it.className="it";
+    it.innerHTML='<span class="chip" style="background:'+hex+'"></span>'+name;
+    l.appendChild(it);
+  });
+}
+
+function render(){
+  const b=STATE[current]; if(!b) return;
+  const months=META.months, nL=b.lanes.length;
+  const tlW=months.length*MW, canvasH=nL*LANEH;
+  const board=document.getElementById("board");
+  board.style.gridTemplateColumns=GUTTER+"px "+tlW+"px";
+  board.style.gridTemplateRows=HEADERH+"px "+canvasH+"px";
+  board.innerHTML="";
+
+  // corner
+  const corner=document.createElement("div"); corner.className="corner"; board.appendChild(corner);
+
+  // months header
+  const mh=document.createElement("div"); mh.className="months"; mh.style.height=HEADERH+"px";
+  months.forEach((m,i)=>{
+    const d=document.createElement("div"); const rep=(i*30)>=META.reportingStart;
+    d.className="m"+(rep?" rep":""); d.style.left=(i*MW)+"px"; d.style.width=MW+"px"; d.textContent=m;
+    mh.appendChild(d);
+  });
+  board.appendChild(mh);
+
+  // lane labels
+  const ln=document.createElement("div"); ln.className="lanes";
+  b.lanes.forEach(name=>{
+    const d=document.createElement("div"); d.className="ln"; d.style.height=LANEH+"px"; d.textContent=name; ln.appendChild(d);
+  });
+  board.appendChild(ln);
+
+  // canvas
+  const cv=document.createElement("div"); cv.className="canvas"; cv.id="canvas"; cv.style.height=canvasH+"px";
+  // reporting band
+  const repX=META.reportingStart*UNIT;
+  const rb=document.createElement("div"); rb.className="repband"; rb.style.left=repX+"px"; rb.style.width=(tlW-repX)+"px";
+  rb.innerHTML='<span class="lbl">Reporting &amp; processing</span>'; cv.appendChild(rb);
+  // gridlines
+  for(let i=0;i<=months.length;i++){ const g=document.createElement("div"); g.className="gl"; g.style.left=(i*MW)+"px"; cv.appendChild(g); }
+  for(let i=1;i<nL;i++){ const s=document.createElement("div"); s.className="ls"; s.style.top=(i*LANEH)+"px"; cv.appendChild(s); }
+  // bars
+  b.items.forEach(it=>cv.appendChild(makeBar(it)));
+  cv.addEventListener("pointerdown",e=>{ if(e.target===cv||e.target.classList.contains("gl")||e.target.classList.contains("ls")||e.target.classList.contains("repband")){ selId=null; markSel(); renderInspector(); } });
+  board.appendChild(cv);
+  renderInspector();
+}
+
+function makeBar(it){
+  const el=document.createElement("div"); el.className="bar"+(it.id===selId?" sel":""); el.dataset.id=it.id;
+  el.style.left=(it.start*UNIT)+"px"; el.style.width=Math.max(it.len*UNIT,UNIT*MINLEN)+"px";
+  el.style.top=(it.lane*LANEH+BARPAD)+"px"; el.style.background=it.color;
+  const lab=document.createElement("div"); lab.className="lab"; lab.textContent=it.label; el.appendChild(lab);
+  if(it.owner){ const o=document.createElement("div"); o.className="own"; o.textContent=it.owner; el.appendChild(o); }
+  const grip=document.createElement("div"); grip.className="grip"; el.appendChild(grip);
+  attachDrag(el,it,grip);
+  return el;
+}
+
+function attachDrag(el,it,grip){
+  let mode=null,sx=0,sy=0,o={};
+  const down=(m)=>e=>{
+    e.preventDefault(); mode=m; sx=e.clientX; sy=e.clientY; o={start:it.start,len:it.len,lane:it.lane};
+    selId=it.id; markSel(); renderInspector(); el.style.cursor="grabbing";
+    window.addEventListener("pointermove",move); window.addEventListener("pointerup",up);
+  };
+  const move=e=>{
+    const dx=(e.clientX-sx)/UNIT, dy=(e.clientY-sy);
+    const b=STATE[current]; const maxLane=b.lanes.length-1;
+    if(mode==="move"){
+      it.start=Math.max(0,Math.round(o.start+dx));
+      it.lane=Math.min(maxLane,Math.max(0,o.lane+Math.round(dy/LANEH)));
+    } else {
+      it.len=Math.max(MINLEN,Math.round(o.len+dx));
+    }
+    el.style.left=(it.start*UNIT)+"px"; el.style.width=(it.len*UNIT)+"px"; el.style.top=(it.lane*LANEH+BARPAD)+"px";
+  };
+  const up=()=>{
+    window.removeEventListener("pointermove",move); window.removeEventListener("pointerup",up);
+    el.style.cursor="grab"; mode=null; emitUpsert(it); renderInspector();
+  };
+  el.addEventListener("pointerdown",down("move"));
+  grip.addEventListener("pointerdown",e=>{ e.stopPropagation(); down("resize")(e); });
+}
+
+function markSel(){ document.querySelectorAll(".bar").forEach(b=>b.classList.toggle("sel",b.dataset.id===selId)); }
+
+function currentItem(){ const b=STATE[current]; return b?b.items.find(x=>x.id===selId):null; }
+
+function renderInspector(){
+  const ins=document.getElementById("inspector"); const it=currentItem();
+  if(!it){ ins.innerHTML='<h3>Inspector</h3><div class="empty">Select a bar to edit its label, owner, colour and lane. Use <b>+ Add activity</b> to create one.</div>'; return; }
+  const b=STATE[current];
+  const startM=monthLabel(it.start), endM=monthLabel(it.start+it.len);
+  ins.innerHTML='<h3>Edit activity</h3>'+
+    '<label>Label</label><input id="f_label" value="">'+
+    '<label>Owner</label><input id="f_owner" value="">'+
+    '<label>Colour</label><div class="swatches" id="f_sw"></div>'+
+    '<label>Lane</label><select id="f_lane"></select>'+
+    '<div class="row2"><div><label>Start</label><input id="f_start" type="number" min="0"></div><div><label>Duration (days)</label><input id="f_len" type="number" min="'+MINLEN+'"></div></div>'+
+    '<div class="hint" style="margin:8px 0">'+startM+' &rarr; '+endM+'</div>'+
+    '<button class="btn danger" id="f_del" style="width:100%;margin-top:6px">Delete activity</button>';
+  ins.querySelector("#f_label").value=it.label;
+  ins.querySelector("#f_owner").value=it.owner||"";
+  ins.querySelector("#f_start").value=it.start;
+  ins.querySelector("#f_len").value=it.len;
+  const sw=ins.querySelector("#f_sw");
+  PALETTE.forEach(([hex])=>{ const s=document.createElement("div"); s.className="sw"+(hex.toLowerCase()===String(it.color).toLowerCase()?" on":""); s.style.background=hex; s.title=hex; s.onclick=()=>{ it.color=hex; commit(it); }; sw.appendChild(s); });
+  const lane=ins.querySelector("#f_lane");
+  b.lanes.forEach((n,i)=>{ const op=document.createElement("option"); op.value=i; op.textContent=n; if(i===it.lane) op.selected=true; lane.appendChild(op); });
+  ins.querySelector("#f_label").oninput=e=>{ it.label=e.target.value; commit(it,true); };
+  ins.querySelector("#f_owner").oninput=e=>{ it.owner=e.target.value; commit(it,true); };
+  ins.querySelector("#f_lane").onchange=e=>{ it.lane=parseInt(e.target.value,10); commit(it); };
+  ins.querySelector("#f_start").onchange=e=>{ it.start=Math.max(0,parseInt(e.target.value,10)||0); commit(it); };
+  ins.querySelector("#f_len").onchange=e=>{ it.len=Math.max(MINLEN,parseInt(e.target.value,10)||MINLEN); commit(it); };
+  ins.querySelector("#f_del").onclick=()=>{ socket.emit("item:remove",{board:current,id:it.id}); STATE[current].items=STATE[current].items.filter(x=>x.id!==it.id); selId=null; render(); };
+}
+
+// commit: lightRender=true only updates the bar dom (avoid losing input focus); else full render
+function commit(it, lightRender){
+  emitUpsert(it);
+  if(lightRender){
+    const el=document.querySelector('.bar[data-id="'+it.id+'"]');
+    if(el){ const lab=el.querySelector(".lab"); if(lab) lab.textContent=it.label;
+      let own=el.querySelector(".own");
+      if(it.owner){ if(!own){ own=document.createElement("div"); own.className="own"; el.appendChild(own);} own.textContent=it.owner; }
+      else if(own){ own.remove(); } }
+  } else { render(); }
+}
+
+function monthLabel(units){
+  const m=Math.floor(units/30); const arr=META?META.months:[];
+  if(m>=arr.length) return "after Sep '27";
+  const dayInMonth=Math.round(units-m*30);
+  return arr[m]+(dayInMonth>2?" (mid)":"");
+}
+
+document.getElementById("addBtn").onclick=()=>{
+  const item={lane:0,start:0,len:30,label:"New activity",color:PALETTE[0][0],owner:""};
+  socket.emit("item:add",{board:current,item},(saved)=>{ selId=saved.id; pendingSelect=saved.id; render(); renderInspector(); markSel(); });
+};
+document.getElementById("resetBtn").onclick=()=>{
+  if(confirm("Reset the "+STATE[current].title+" board to the suggested layout? This affects everyone.")) socket.emit("board:reset",{board:current});
+};
+document.getElementById("pngBtn").onclick=()=>{
+  const node=document.getElementById("board");
+  if(typeof html2canvas!=="function"){ alert("PNG export needs internet access to load the export library."); return; }
+  html2canvas(node,{backgroundColor:"#ffffff",scale:2}).then(c=>{
+    const a=document.createElement("a"); a.download="NESSIE-timeline-"+current+".png"; a.href=c.toDataURL("image/png"); a.click();
+  });
+};
+</script>
+</body>
+</html>

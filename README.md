@@ -1,13 +1,16 @@
 # NESSIE WP3 & WP4 Implementation Timeline Board
 
-A live, multi-user planning board for the four NESSIE lighthouses (Ameland, Samsø, Borkum, Morbihan) plus a shared WP4 board. Each board is a timeline from September 2026 to June 2027 (with an Aug–Sep 2027 reporting band). Activities are **variable-length duration bars** you can drag to move and drag by the right edge to resize — from a single-day event to a multi-month block. Everyone with the link edits the same boards in real time.
+A live, multi-user planning board for the four NESSIE lighthouses (Ameland, Samsø, Borkum, Morbihan) plus a shared WP4 board. Each board is a timeline from **January 2026 to September 2027** (with an Aug–Sep 2027 reporting band and a "today" marker). Activities are **variable-length duration bars** you can drag to move and drag by the right edge to resize — from a single-day event to a multi-month block. Everyone with the link edits the same boards in real time.
 
 ## What's in it
 
 - **Five boards** via the tabs: Ameland, Samsø, Borkum, Morbihan, WP4 – shared.
-- **Pre-filled** with suggested milestones (SACs, traineeships, ET-Intensives, E-Campus opening + workshops, teacher training, Samsø digitalisation, and the WP4 Advisory Board / Belgian replica / Final Conference).
-- **Lanes per pillar** down the left, colour-coded bars across the timeline.
-- **Edit anything**: click a bar to change its label, owner, colour, lane, start and duration. `+ Add activity` creates a new bar; each bar has a delete button.
+- **Pre-filled** with suggested milestones (SACs, traineeships, ET-Intensives, E-Campus opening + workshops, teacher training, Samsø digitalisation, and the WP4 Advisory Board / Belgian replica / Final Conference). The **Morbihan General Assembly (1 May 2026)** is seeded as a completed past milestone.
+- **Event bank** at the top: drag a typed event chip onto any lane to create it. Colours are fixed per activity type (not editable) so the timeline stays consistent.
+- **Lanes per pillar** down the left. Items that overlap in time **stack into sub-rows** within their lane, so nothing hides behind anything else.
+- **Date pickers**: click a bar to set its start and end dates, owner, lane, and a "Completed" flag. Past events (end date before today) are automatically shown with a faded/striped "done" style and a ✓.
+- **Zoom in / out** with the +/− buttons; the board scrolls horizontally when zoomed in.
+- **Hover** any bar for a tooltip with its full name, dates and owner.
 - **Live collaboration** over WebSockets — open the link on several devices and watch edits appear instantly. The header shows how many people are online.
 - **Download PNG** to capture the current board as the shared record.
 - **Reset this board** restores the suggested layout for that one board (affects everyone).

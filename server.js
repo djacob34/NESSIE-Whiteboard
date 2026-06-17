@@ -1,7 +1,8 @@
 /*
  * NESSIE WP3 & WP4 Implementation Timeline Board
- * Collaborative, multi-user timeline. Express serves the client; Socket.IO syncs state live.
- * State is held in memory and persisted to data.json (best-effort) so a restart keeps the boards.
+ * Collaborative, multi-user timeline (Jan 2026 - Sep 2027).
+ * Express serves the client; Socket.IO syncs state live.
+ * State is held in memory and persisted to data.json (best-effort).
  */
 const path = require("path");
 const fs = require("fs");
@@ -12,82 +13,67 @@ const { Server } = require("socket.io");
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
-
 const DATA_FILE = path.join(__dirname, "data.json");
 
-// ---- Colour palette (pillars) ----
-const C = {
-  sac: "#FFE27A",        // SACs - yellow
-  traineeship: "#B7E1A1",// Traineeships - green
-  et: "#9FE0D3",         // ET-Intensives - teal/mint
-  ecampus: "#A9CCEC",    // E-Campus - blue
-  teacher: "#F6BE99",    // Teacher Training - orange
-  digital: "#EEB8DA",    // Digitalisation - pink
-  wp4: "#C9B3E6",        // WP4 Replication - purple
-  milestone: "#F0AFA9",  // Milestones - red
-};
-
-// Months: Sep 2026 .. Sep 2027. Each month = 30 units. Delivery window 0..300 (Sep26-Jun27).
-const MONTHS = ["Sep '26","Oct '26","Nov '26","Dec '26","Jan '27","Feb '27","Mar '27","Apr '27","May '27","Jun '27","Jul '27","Aug '27","Sep '27"];
-const REPORTING_START = 300; // Jul '27 onward = reporting / processing
-
-const LIGHTHOUSE_LANES = ["SACs","Traineeships","ET-Intensives","E-Campus","Teacher training"];
+const LH_LANES = ["SACs","Traineeships","ET-Intensives","E-Campus","Teacher training"];
 const SAMSO_LANES = ["SACs","Traineeships","ET-Intensives","E-Campus","Teacher training","Digitalisation"];
-const WP4_LANES = ["Advisory Board","Replication","Final events"];
+const WP4_LANES = ["Advisory Board","Replication","Final events","Milestones"];
 
 let uid = 1;
 const nid = () => "i" + (uid++);
+const mk = (type, lane, start, end, label, owner, done) =>
+  ({ id: nid(), type, lane, start, end, label: label || "", owner: owner || "", done: !!done });
 
-function lighthouseItems(extraDigital) {
-  const items = [
-    { lane: 4, start: 0,   len: 60,  label: "Teacher training (10 teachers)",        color: C.teacher,     owner: "" },
-    { lane: 0, start: 30,  len: 14,  label: "SAC 1",                                  color: C.sac,         owner: "" },
-    { lane: 0, start: 180, len: 14,  label: "SAC 2",                                  color: C.sac,         owner: "" },
-    { lane: 1, start: 30,  len: 90,  label: "Traineeship R1 (~8)",                    color: C.traineeship, owner: "" },
-    { lane: 1, start: 120, len: 90,  label: "Traineeship R2 (~8)",                    color: C.traineeship, owner: "" },
-    { lane: 1, start: 210, len: 90,  label: "Traineeship R3 (~8)",                    color: C.traineeship, owner: "" },
-    { lane: 2, start: 120, len: 7,   label: "ET-Intensive 1 (20 students)",           color: C.et,          owner: "" },
-    { lane: 2, start: 240, len: 7,   label: "ET-Intensive 2 (20 students)",           color: C.et,          owner: "" },
-    { lane: 3, start: 60,  len: 4,   label: "E-Campus opening (VIP)",                 color: C.ecampus,     owner: "" },
-    { lane: 3, start: 66,  len: 204, label: "E-Campus workshops (12)",                color: C.ecampus,     owner: "" },
+function lighthouseItems(digital) {
+  const a = [
+    mk("teacher",            4, "2026-09-01", "2026-10-31", "Teacher training (10 teachers)", ""),
+    mk("sac",                0, "2026-10-12", "2026-10-25", "SAC 1", ""),
+    mk("sac",                0, "2027-03-01", "2027-03-14", "SAC 2", ""),
+    mk("traineeship",        1, "2026-10-01", "2026-12-31", "Traineeship R1 (~8)", ""),
+    mk("traineeship",        1, "2027-01-15", "2027-03-31", "Traineeship R2 (~8)", ""),
+    mk("traineeship",        1, "2027-04-01", "2027-06-30", "Traineeship R3 (~8)", ""),
+    mk("et",                 2, "2027-01-19", "2027-01-25", "ET-Intensive 1 (20 students)", ""),
+    mk("et",                 2, "2027-05-11", "2027-05-17", "ET-Intensive 2 (20 students)", ""),
+    mk("ecampus_open",       3, "2026-11-15", "2026-11-17", "E-Campus opening (VIP)", ""),
+    mk("ecampus_workshops",  3, "2026-11-20", "2027-06-30", "E-Campus workshops (12)", ""),
   ];
-  if (extraDigital) {
-    items.push(
-      { lane: 5, start: 60,  len: 12, label: "Hybrid SAC 1 (online)", color: C.digital, owner: "Samso Energy Academy" },
-      { lane: 5, start: 120, len: 12, label: "Hybrid SAC 2 (online)", color: C.digital, owner: "Samso Energy Academy" },
-      { lane: 5, start: 180, len: 12, label: "Hybrid SAC 3 (online)", color: C.digital, owner: "Samso Energy Academy" },
-      { lane: 5, start: 240, len: 12, label: "Hybrid SAC 4 (online)", color: C.digital, owner: "Samso Energy Academy" },
+  if (digital) {
+    a.push(
+      mk("digital", 5, "2026-11-01", "2026-11-12", "Hybrid SAC 1 (online)", "Samso Energy Academy"),
+      mk("digital", 5, "2027-01-10", "2027-01-21", "Hybrid SAC 2 (online)", "Samso Energy Academy"),
+      mk("digital", 5, "2027-03-10", "2027-03-21", "Hybrid SAC 3 (online)", "Samso Energy Academy"),
+      mk("digital", 5, "2027-05-10", "2027-05-21", "Hybrid SAC 4 (online)", "Samso Energy Academy"),
     );
   }
-  return items.map(it => ({ id: nid(), ...it }));
+  return a;
 }
 
 function wp4Items() {
   return [
-    { lane: 1, start: 0,   len: 60, label: "Call of Interest - Belgian outreach", color: C.wp4,       owner: "Flux50 / NEC" },
-    { lane: 0, start: 60,  len: 4,  label: "Advisory Board Meeting 2",             color: C.wp4,       owner: "Advisory Board" },
-    { lane: 1, start: 120, len: 6,  label: "Early adopter kick-off (BE)",          color: C.wp4,       owner: "Flux50 / NEC" },
-    { lane: 1, start: 210, len: 45, label: "Replica test run (BE early adopters)", color: C.wp4,       owner: "Belgian early adopters" },
-    { lane: 0, start: 270, len: 4,  label: "Advisory Board Meeting 3 (+ KERs)",    color: C.wp4,       owner: "Advisory Board" },
-    { lane: 2, start: 285, len: 5,  label: "Final Conference",                     color: C.milestone, owner: "Consortium" },
-    { lane: 2, start: 278, len: 5,  label: "Final reflection workshop",            color: C.milestone, owner: "BBS Borkum" },
-  ].map(it => ({ id: nid(), ...it }));
+    mk("callofinterest", 1, "2026-09-01", "2026-10-31", "Call of Interest - Belgian outreach", "Flux50 / NEC"),
+    mk("advisory",       0, "2026-11-15", "2026-11-17", "Advisory Board Meeting 2",            "Advisory Board"),
+    mk("earlyadopter",   1, "2027-01-20", "2027-01-26", "Early adopter kick-off (BE)",         "Flux50 / NEC"),
+    mk("replica",        1, "2027-04-15", "2027-05-31", "Replica test run (BE early adopters)","Belgian early adopters"),
+    mk("advisory",       0, "2027-06-15", "2027-06-18", "Advisory Board Meeting 3 (+ KERs)",   "Advisory Board"),
+    mk("conference",     2, "2027-06-22", "2027-06-26", "Final Conference",                    "Consortium"),
+    mk("reflection",     2, "2027-06-19", "2027-06-23", "Final reflection workshop",           "BBS Borkum"),
+    mk("ga",             3, "2026-05-01", "2026-05-02", "Morbihan General Assembly",           "Consortium", true),
+  ];
 }
 
 function defaultState() {
   return {
-    ameland:  { title: "Ameland",       lanes: LIGHTHOUSE_LANES, items: lighthouseItems(false) },
-    samso:    { title: "Samso",         lanes: SAMSO_LANES,      items: lighthouseItems(true)  },
-    borkum:   { title: "Borkum",        lanes: LIGHTHOUSE_LANES, items: lighthouseItems(false) },
-    morbihan: { title: "Morbihan",      lanes: LIGHTHOUSE_LANES, items: lighthouseItems(false) },
-    wp4:      { title: "WP4 - shared",  lanes: WP4_LANES,        items: wp4Items()             },
+    ameland:  { title: "Ameland",      lanes: LH_LANES,    items: lighthouseItems(false) },
+    samso:    { title: "Samso",        lanes: SAMSO_LANES, items: lighthouseItems(true)  },
+    borkum:   { title: "Borkum",       lanes: LH_LANES,    items: lighthouseItems(false) },
+    morbihan: { title: "Morbihan",     lanes: LH_LANES,    items: lighthouseItems(false) },
+    wp4:      { title: "WP4 - Belgium", lanes: WP4_LANES,  items: wp4Items()             },
   };
 }
 
 let state;
 try {
   state = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-  // keep uid ahead of any existing ids
   for (const b of Object.values(state)) for (const it of b.items) {
     const n = parseInt(String(it.id).replace(/\D/g, ""), 10);
     if (!isNaN(n) && n >= uid) uid = n + 1;
@@ -106,15 +92,13 @@ function persist() {
   }, 400);
 }
 
-const META = { months: MONTHS, reportingStart: REPORTING_START, palette: C };
+const META = { origin: "2026-01-01", end: "2027-09-30", reportingStart: "2027-08-01" };
 
 app.use(express.static(path.join(__dirname, "public")));
-
 let online = 0;
 
 io.on("connection", socket => {
-  online++;
-  io.emit("presence", online);
+  online++; io.emit("presence", online);
   socket.emit("init", { state, meta: META });
 
   socket.on("item:upsert", ({ board, item }) => {
@@ -150,10 +134,7 @@ io.on("connection", socket => {
     persist();
   });
 
-  socket.on("disconnect", () => {
-    online = Math.max(0, online - 1);
-    io.emit("presence", online);
-  });
+  socket.on("disconnect", () => { online = Math.max(0, online - 1); io.emit("presence", online); });
 });
 
 const PORT = process.env.PORT || 3000;

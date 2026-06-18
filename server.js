@@ -23,6 +23,32 @@ const nid = () => "i" + (uid++);
 const mk = (type, lane, start, end, label, owner, done) =>
   ({ id: nid(), type, lane, start, end, label: label || "", owner: owner || "", done: !!done });
 
+// Sample lighthouse activities (islands). Lanes:
+// 0 SACs · 1 Traineeships · 2 ET-Intensives · 3 E-Campus · 4 Teacher training · 5 Digitalisation
+function lighthouseItems(digital) {
+  const a = [
+    mk("teacher",            4, "2026-09-01", "2026-10-31", "Teacher training (10 teachers)", ""),
+    mk("sac",                0, "2026-10-12", "2026-10-25", "SAC 1", ""),
+    mk("sac",                0, "2027-03-01", "2027-03-14", "SAC 2", ""),
+    mk("traineeship",        1, "2026-10-01", "2026-12-31", "Traineeship R1 (~8)", ""),
+    mk("traineeship",        1, "2027-01-15", "2027-03-31", "Traineeship R2 (~8)", ""),
+    mk("traineeship",        1, "2027-04-01", "2027-06-30", "Traineeship R3 (~8)", ""),
+    mk("et",                 2, "2027-01-19", "2027-01-25", "ET-Intensive 1 (20 students)", ""),
+    mk("et",                 2, "2027-05-11", "2027-05-17", "ET-Intensive 2 (20 students)", ""),
+    mk("ecampus_open",       3, "2026-11-15", "2026-11-17", "E-Campus opening (VIP)", ""),
+    mk("ecampus_workshops",  3, "2026-11-20", "2027-06-30", "E-Campus workshops (12)", ""),
+  ];
+  if (digital) {
+    a.push(
+      mk("digital", 5, "2026-11-01", "2026-11-12", "Hybrid SAC 1 (online)", "Samso Energy Academy"),
+      mk("digital", 5, "2027-01-10", "2027-01-21", "Hybrid SAC 2 (online)", "Samso Energy Academy"),
+      mk("digital", 5, "2027-03-10", "2027-03-21", "Hybrid SAC 3 (online)", "Samso Energy Academy"),
+      mk("digital", 5, "2027-05-10", "2027-05-21", "Hybrid SAC 4 (online)", "Samso Energy Academy"),
+    );
+  }
+  return a;
+}
+
 // WP4 (Replication) board seeded from the WP4 management plan.
 // Lanes: 0 Advisory Board · 1 Replication · 2 Final events · 3 Milestones
 function wp4Items() {
@@ -58,10 +84,10 @@ function wp4Items() {
 
 function defaultState() {
   return {
-    ameland:  { title: "Ameland",      lanes: ISLAND_LANES, items: [] },
-    samso:    { title: "Samso",        lanes: ISLAND_LANES, items: [] },
-    borkum:   { title: "Borkum",       lanes: ISLAND_LANES, items: [] },
-    morbihan: { title: "Morbihan",     lanes: ISLAND_LANES, items: [] },
+    ameland:  { title: "Ameland",      lanes: ISLAND_LANES, items: lighthouseItems(false) },
+    samso:    { title: "Samso",        lanes: ISLAND_LANES, items: lighthouseItems(true)  },
+    borkum:   { title: "Borkum",       lanes: ISLAND_LANES, items: lighthouseItems(false) },
+    morbihan: { title: "Morbihan",     lanes: ISLAND_LANES, items: lighthouseItems(false) },
     wp4:      { title: "WP4 - Belgium", lanes: WP4_LANES,    items: wp4Items() },
   };
 }

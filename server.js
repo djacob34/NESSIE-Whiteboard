@@ -13,7 +13,16 @@ const { Server } = require("socket.io");
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
-const DATA_FILE = path.join(__dirname, "data.json");
+// Where the live board state is persisted. Point DATA_FILE (or DATA_DIR) at a
+// PERSISTENT volume in production (e.g. a Railway Volume mounted at /data) so
+// partner edits survive redeploys. Defaults to the app folder for local dev.
+const DATA_DIR = process.env.DATA_DIR || __dirname;
+const DATA_FILE = process.env.DATA_FILE || path.join(DATA_DIR, "data.json");
+// Optional one-time migration snapshot: on the very first boot at a fresh
+// persistent location (empty volume), seed from this bundled file instead of
+// the built-in defaults, so existing partner data is preserved. Ignored once
+// DATA_FILE exists.
+const SEED_FILE = path.join(__dirname, "seed-data.json");
 
 const ISLAND_LANES = ["NESSIE phases","Recruitment","SACs","Traineeships","ET-Intensives","E-Campus","Teacher training","Digitalisation"];
 const WP4_LANES = ["Advisory Board","Replication","Final events","Milestones"];
@@ -141,17 +150,33 @@ function defaultState() {
   };
 }
 
-let state;
-try {
-  state = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-  for (const b of Object.values(state)) for (const it of b.items) {
+function reindexUid(s) {
+  for (const b of Object.values(s)) for (const it of b.items) {
     const n = parseInt(String(it.id).replace(/\D/g, ""), 10);
     if (!isNaN(n) && n >= uid) uid = n + 1;
   }
-  console.log("Loaded saved board state.");
+}
+
+let state;
+try {
+  // Existing persisted state always wins (this is the live partner data).
+  state = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+  reindexUid(state);
+  console.log("Loaded saved board state from " + DATA_FILE);
 } catch (e) {
-  state = defaultState();
-  console.log("Seeded fresh board state.");
+  // No file yet (fresh install or empty volume). Prefer a bundled migration
+  // snapshot of partner data if present; otherwise fall back to defaults.
+  try {
+    state = JSON.parse(fs.readFileSync(SEED_FILE, "utf8"));
+    reindexUid(state);
+    console.log("Seeded board state from migration snapshot " + SEED_FILE);
+  } catch (e2) {
+    state = defaultState();
+    console.log("Seeded fresh default board state.");
+  }
+  // Write immediately so the persistent location is populated on first boot.
+  try { fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true }); } catch (_) {}
+  try { fs.writeFileSync(DATA_FILE, JSON.stringify(state)); } catch (err) { console.error("initial persist error", err); }
 }
 
 let saveTimer = null;
@@ -161,10 +186,50 @@ function persist() {
     fs.writeFile(DATA_FILE, JSON.stringify(state), err => { if (err) console.error("persist error", err); });
   }, 400);
 }
+// Write immediately and durably (used for imports and on shutdown) so nothing
+// is lost in the debounce window when the container is being redeployed.
+function persistSync() {
+  clearTimeout(saveTimer);
+  try { fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true }); } catch (_) {}
+  try { fs.writeFileSync(DATA_FILE, JSON.stringify(state)); } catch (err) { console.error("persistSync error", err); }
+}
+// Railway (and most platforms) send SIGTERM before replacing the container on a
+// redeploy; flush the latest state synchronously so in-flight edits survive.
+let shuttingDown = false;
+function gracefulExit() { if (shuttingDown) return; shuttingDown = true; persistSync(); process.exit(0); }
+process.on("SIGTERM", gracefulExit);
+process.on("SIGINT", gracefulExit);
 
 const META = { origin: "2023-10-01", end: "2027-09-30", reportingStart: "2027-08-01" };
 
 app.use(express.static(path.join(__dirname, "public")));
+app.use(express.json({ limit: "30mb" }));
+
+// --- One-time migration / backup endpoints (disabled unless ADMIN_TOKEN is set) ---
+// Used to snapshot the live partner data and load it onto a persistent volume
+// without ever placing that data in the (public) repo. Send the token in the
+// "x-admin-token" header.
+function adminOK(req) { const t = process.env.ADMIN_TOKEN; return !!t && req.get("x-admin-token") === t; }
+
+app.get("/admin/export", (req, res) => {
+  if (!adminOK(req)) return res.status(403).json({ error: "forbidden" });
+  res.json(state);
+});
+
+app.post("/admin/import", (req, res) => {
+  if (!adminOK(req)) return res.status(403).json({ error: "forbidden" });
+  const incoming = req.body;
+  if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) return res.status(400).json({ error: "bad payload" });
+  for (const [k, b] of Object.entries(incoming)) {
+    if (!b || !Array.isArray(b.lanes) || !Array.isArray(b.items)) return res.status(400).json({ error: "invalid board: " + k });
+  }
+  state = incoming;
+  reindexUid(state);
+  persistSync();
+  for (const board of Object.keys(state)) io.emit("board:replace", { board, data: state[board] });
+  res.json({ ok: true, boards: Object.keys(state) });
+});
+
 let online = 0;
 
 io.on("connection", socket => {

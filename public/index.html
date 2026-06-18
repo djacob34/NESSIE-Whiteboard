@@ -22,15 +22,22 @@
   .btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 11px;cursor:pointer;font-size:13px;color:var(--navy);font-weight:600}
   .btn:hover{background:#eef4fb}
   .btn.danger{color:#b23b34;border-color:#f0c9c5}
-  .zoom{display:flex;align-items:center;gap:4px;margin-left:auto}
-  .zoom .btn{padding:6px 10px;font-size:15px;line-height:1}
+  .zoomdock{position:absolute;right:14px;bottom:18px;z-index:20;display:flex;align-items:center;gap:4px;background:rgba(255,255,255,.96);border:1px solid var(--line);border-radius:10px;padding:4px 6px;box-shadow:0 2px 10px rgba(0,0,0,.18)}
+  .zoomdock .btn{padding:6px 10px;font-size:15px;line-height:1}
+  .zoomdock .hint{margin:0}
   .hint{font-size:12px;color:var(--muted)}
   .bank{display:flex;align-items:center;gap:8px;padding:6px 18px 10px;flex-wrap:wrap}
   .bank .lbl{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-right:2px}
   .chip{display:flex;align-items:center;gap:6px;border:1px solid rgba(0,0,0,.12);border-radius:18px;padding:5px 11px;font-size:12px;font-weight:600;color:#243018;cursor:grab;user-select:none}
   .chip .sw{width:11px;height:11px;border-radius:3px}
   .wrap{display:flex;align-items:flex-start;padding:0 18px 18px}
-  .scroll{flex:1;overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel);max-height:70vh}
+  .boardarea{position:relative;flex:1;display:flex;min-width:0}
+  .scroll{flex:1;overflow-x:scroll;overflow-y:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel);max-height:70vh}
+  .scroll::-webkit-scrollbar{height:14px;width:12px}
+  .scroll::-webkit-scrollbar-track{background:#eef1f5;border-radius:7px}
+  .scroll::-webkit-scrollbar-thumb{background:#b9c1cd;border-radius:7px;border:3px solid #eef1f5}
+  .scroll::-webkit-scrollbar-thumb:hover{background:#9aa4b3}
+  .scroll::-webkit-scrollbar-corner{background:#eef1f5}
   .board{display:grid;position:relative}
   .corner{position:sticky;left:0;z-index:7;background:#fff;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
   .months{position:sticky;top:0;z-index:4;border-bottom:1px solid var(--line);background:#fbfcfe}
@@ -67,6 +74,8 @@
   .legend .it{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#444}
   .legend .lc{width:15px;height:15px;border-radius:4px;border:1px solid rgba(0,0,0,.08)}
   .ghost{position:fixed;z-index:9999;pointer-events:none;border-radius:8px;padding:5px 9px;font-size:11px;font-weight:600;color:#243018;box-shadow:0 4px 14px rgba(0,0,0,.25);opacity:.92}
+  .tip{position:fixed;z-index:10000;pointer-events:none;display:none;background:#1f2430;color:#fff;padding:6px 9px;border-radius:6px;font-size:11.5px;line-height:1.35;max-width:260px;white-space:normal;box-shadow:0 4px 14px rgba(0,0,0,.32)}
+  .tip .sub{opacity:.75;font-size:10.5px}
 </style>
 </head>
 <body>
@@ -82,18 +91,25 @@
 <div class="toolbar">
   <button class="btn" id="pngBtn">Download PNG</button>
   <button class="btn danger" id="resetBtn">Reset this board</button>
-  <span class="hint">Drag a bank chip onto the board to add &middot; drag a bar to move &middot; drag its right edge to resize &middot; click to edit dates.</span>
-  <span class="zoom"><button class="btn" id="zOut" title="Zoom out">&minus;</button><span class="hint" id="zLbl" style="min-width:42px;text-align:center">100%</span><button class="btn" id="zIn" title="Zoom in">+</button></span>
+  <span class="hint">Drag a task chip onto the board to add &middot; drag a bar to move &middot; drag its right edge to resize &middot; click to edit dates.</span>
 </div>
 
-<div class="bank" id="bank"><span class="lbl">Event bank</span></div>
+<div class="bank" id="bank"><span class="lbl">Task bank</span></div>
 
 <div class="legend" id="legend"></div>
 
 <div class="wrap">
-  <div class="scroll"><div class="board" id="board"></div></div>
-  <div class="inspector" id="inspector"><h3>Inspector</h3><div class="empty">Select a bar to edit it, or drag an event from the bank above onto the board.</div></div>
+  <div class="boardarea">
+    <div class="scroll"><div class="board" id="board"></div></div>
+    <div class="zoomdock">
+      <button class="btn" id="zOut" title="Zoom out">&minus;</button>
+      <span class="hint" id="zLbl" style="min-width:42px;text-align:center">100%</span>
+      <button class="btn" id="zIn" title="Zoom in">+</button>
+    </div>
+  </div>
+  <div class="inspector" id="inspector"><h3>Inspector</h3><div class="empty">Select a bar to edit it, or drag a task from the bank above onto the board.</div></div>
 </div>
+<div class="tip" id="tip"></div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -118,13 +134,31 @@ const TYPES={
   milestone:{label:"Milestone / deadline",color:"#F0AFA9",dur:1,cat:"Milestones / final"},
 };
 const LEGEND=[["SACs","#FFE27A"],["Traineeships","#B7E1A1"],["ET-Intensives","#9FE0D3"],["E-Campus","#A9CCEC"],["Teacher training","#F6BE99"],["Digitalisation","#EEB8DA"],["WP4 / Advisory","#C9B3E6"],["Milestones / final","#F0AFA9"]];
-const BANK={
-  ameland:["sac","traineeship","et","ecampus_open","ecampus_workshops","teacher","milestone"],
-  samso:["sac","traineeship","et","ecampus_open","ecampus_workshops","teacher","digital","milestone"],
-  borkum:["sac","traineeship","et","ecampus_open","ecampus_workshops","teacher","milestone"],
-  morbihan:["sac","traineeship","et","ecampus_open","ecampus_workshops","teacher","milestone"],
-  wp4:["advisory","callofinterest","earlyadopter","replica","conference","reflection","milestone"],
-};
+const ISLAND_TASKS=[
+  {type:"sac",label:"SAC 1",dur:14},
+  {type:"sac",label:"SAC 2",dur:14},
+  {type:"traineeship",label:"Traineeship R1 (~8)",dur:90},
+  {type:"traineeship",label:"Traineeship R2 (~8)",dur:76},
+  {type:"traineeship",label:"Traineeship R3 (~8)",dur:91},
+  {type:"et",label:"ET-Intensive 1 (20 students)",dur:7},
+  {type:"et",label:"ET-Intensive 2 (20 students)",dur:7},
+  {type:"ecampus_open",label:"E-Campus opening (VIP)",dur:3},
+  {type:"ecampus_workshops",label:"E-Campus workshops (12)",dur:222},
+  {type:"teacher",label:"Teacher training (10 teachers)",dur:61},
+  {type:"digital",label:"Hybrid SAC (online)",dur:12},
+  {type:"milestone",label:"Milestone / deadline",dur:1},
+];
+const WP4_TASKS=[
+  {type:"callofinterest",label:"Call of Interest - Belgian outreach",dur:61,owner:"Flux50 / NEC"},
+  {type:"advisory",label:"Advisory Board Meeting",dur:3,owner:"Advisory Board"},
+  {type:"earlyadopter",label:"Early adopter kick-off (BE)",dur:7,owner:"Flux50 / NEC"},
+  {type:"replica",label:"Replica test run (BE early adopters)",dur:47,owner:"Belgian early adopters"},
+  {type:"conference",label:"Final Conference",dur:5,owner:"Consortium"},
+  {type:"reflection",label:"Final reflection workshop",dur:5},
+  {type:"ga",label:"General Assembly",dur:2,owner:"Consortium"},
+  {type:"milestone",label:"Milestone / deadline",dur:1},
+];
+const TASKS={ameland:ISLAND_TASKS,samso:ISLAND_TASKS,borkum:ISLAND_TASKS,morbihan:ISLAND_TASKS,wp4:WP4_TASKS};
 
 let STATE={}, META=null, current="ameland", selId=null, pendingSelect=null;
 let ORIGIN, END, MONTHS=[], TOTAL=0, ppd=2.6;
@@ -166,10 +200,10 @@ function buildTabs(){ const t=document.getElementById("tabs");t.innerHTML="";
   BOARDS.forEach(([id,name])=>{const e=document.createElement("div");e.className="tab"+(id===current?" active":"");e.textContent=name;e.onclick=()=>{current=id;selId=null;buildTabs();buildBank();render();};t.appendChild(e);});}
 function buildLegend(){ const l=document.getElementById("legend");l.innerHTML="";
   LEGEND.forEach(([n,c])=>{const e=document.createElement("div");e.className="it";e.innerHTML='<span class="lc" style="background:'+c+'"></span>'+n;l.appendChild(e);});}
-function buildBank(){ const bk=document.getElementById("bank");bk.innerHTML='<span class="lbl">Event bank &middot; drag onto board</span>';
-  (BANK[current]||[]).forEach(tp=>{const t=TYPES[tp];const c=document.createElement("div");c.className="chip";c.style.background=t.color;
-    c.innerHTML='<span class="sw" style="background:rgba(0,0,0,.18)"></span>'+t.label;
-    c.addEventListener("pointerdown",e=>startBankDrag(e,tp));bk.appendChild(c);});}
+function buildBank(){ const bk=document.getElementById("bank");bk.innerHTML='<span class="lbl">Task bank &middot; drag onto board</span>';
+  (TASKS[current]||[]).forEach(task=>{const t=TYPES[task.type];const c=document.createElement("div");c.className="chip";c.style.background=t.color;
+    c.innerHTML='<span class="sw" style="background:rgba(0,0,0,.18)"></span>'+task.label;
+    c.addEventListener("pointerdown",e=>startBankDrag(e,task));bk.appendChild(c);});}
 
 function laneLayout(b){
   const rowsPer=[], topOf=[]; let acc=0;
@@ -219,7 +253,9 @@ function makeBar(it,lay){
   const el=document.createElement("div");el.className="bar"+(it.id===selId?" sel":"")+(isDone(it)?" done":"");el.dataset.id=it.id;
   el.style.left=(s*ppd)+"px";el.style.width=Math.max((en-s+1)*ppd,MINW)+"px";
   el.style.top=(lay.topOf[it.lane]+LANEPAD+(it._row||0)*(BARH+SUBGAP))+"px";el.style.height=BARH+"px";el.style.background=colorOf(it);
-  el.title=labelOf(it)+"  ("+it.start+" → "+it.end+")"+(it.owner?"  · "+it.owner:"")+(isDone(it)?"  · done":"");
+  el.addEventListener("mouseenter",e=>showTip(e,it));
+  el.addEventListener("mousemove",moveTip);
+  el.addEventListener("mouseleave",hideTip);
   const lab=document.createElement("div");lab.className="lab";lab.textContent=labelOf(it);el.appendChild(lab);
   if(it.owner){const o=document.createElement("div");o.className="own";o.textContent=it.owner;el.appendChild(o);}
   if(isDone(it)){const c=document.createElement("div");c.className="chk";c.textContent="✓";el.appendChild(c);}
@@ -230,7 +266,7 @@ function makeBar(it,lay){
 
 function attachDrag(el,it,grip){
   let mode=null,sx=0,sy=0,oLeft=0,oTop=0,oW=0;
-  const down=m=>e=>{e.preventDefault();mode=m;sx=e.clientX;sy=e.clientY;
+  const down=m=>e=>{e.preventDefault();mode=m;sx=e.clientX;sy=e.clientY;hideTip();
     oLeft=parseFloat(el.style.left);oTop=parseFloat(el.style.top);oW=parseFloat(el.style.width);
     selId=it.id;markSel();renderInspector();el.style.cursor="grabbing";el.style.zIndex=50;
     window.addEventListener("pointermove",move);window.addEventListener("pointerup",up);};
@@ -288,11 +324,24 @@ function renderInspector(){
 }
 function light(it){const el=document.querySelector('.bar[data-id="'+it.id+'"]');if(el){const l=el.querySelector(".lab");if(l)l.textContent=labelOf(it);}}
 
+// ---- hover tooltip ----
+const tipEl=document.getElementById("tip");
+function showTip(e,it){
+  tipEl.innerHTML=labelOf(it)+'<div class="sub">'+it.start+' → '+it.end+(it.owner?' · '+it.owner:'')+(isDone(it)?' · done':'')+'</div>';
+  tipEl.style.display="block";moveTip(e);
+}
+function moveTip(e){
+  const x=Math.min(window.innerWidth-tipEl.offsetWidth-10,e.clientX+14);
+  const y=Math.min(window.innerHeight-tipEl.offsetHeight-10,e.clientY+16);
+  tipEl.style.left=Math.max(6,x)+"px";tipEl.style.top=Math.max(6,y)+"px";
+}
+function hideTip(){tipEl.style.display="none";}
+
 // ---- bank drag & drop ----
-function startBankDrag(e,tp){
+function startBankDrag(e,task){
   e.preventDefault();
-  const t=TYPES[tp];
-  const ghost=document.createElement("div");ghost.className="ghost";ghost.style.background=t.color;ghost.textContent=t.label;
+  const t=TYPES[task.type];
+  const ghost=document.createElement("div");ghost.className="ghost";ghost.style.background=t.color;ghost.textContent=task.label;
   document.body.appendChild(ghost);
   const moveG=ev=>{ghost.style.left=(ev.clientX+10)+"px";ghost.style.top=(ev.clientY+8)+"px";};
   moveG(e);
@@ -302,8 +351,9 @@ function startBankDrag(e,tp){
     if(ev.clientX<r.left||ev.clientX>r.right||ev.clientY<r.top||ev.clientY>r.bottom)return;
     const dayoff=Math.max(0,Math.round((ev.clientX-r.left)/ppd));
     const lane=laneFromY(ev.clientY-r.top,cv._lay,STATE[current].lanes.length);
-    const start=isoFromOff(dayoff),end=isoFromOff(dayoff+Math.max(0,(t.dur||7)-1));
-    const item={type:tp,lane,start,end,label:"",owner:"",done:false};
+    const dur=task.dur||t.dur||7;
+    const start=isoFromOff(dayoff),end=isoFromOff(dayoff+Math.max(0,dur-1));
+    const item={type:task.type,lane,start,end,label:task.label||"",owner:task.owner||"",done:false};
     socket.emit("item:add",{board:current,item},saved=>{selId=saved.id;pendingSelect=saved.id;render();renderInspector();});
   };
   window.addEventListener("pointermove",moveG);window.addEventListener("pointerup",up);

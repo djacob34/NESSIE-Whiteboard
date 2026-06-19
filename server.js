@@ -158,14 +158,26 @@ function reindexUid(s) {
 }
 
 let state;
-try {
+let loaded = false;
+const dataFileExists = fs.existsSync(DATA_FILE);
+if (dataFileExists) {
   // Existing persisted state always wins (this is the live partner data).
-  state = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-  reindexUid(state);
-  console.log("Loaded saved board state from " + DATA_FILE);
-} catch (e) {
-  // No file yet (fresh install or empty volume). Prefer a bundled migration
-  // snapshot of partner data if present; otherwise fall back to defaults.
+  try {
+    state = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+    reindexUid(state);
+    loaded = true;
+    console.log("Loaded saved board state from " + DATA_FILE);
+  } catch (e) {
+    // The file exists but is unreadable/corrupt. NEVER overwrite it with
+    // defaults — preserve it untouched for recovery and boot from a fallback.
+    const bad = DATA_FILE + ".corrupt-" + Date.now();
+    try { fs.copyFileSync(DATA_FILE, bad); } catch (_) {}
+    console.error("Corrupt data file at " + DATA_FILE + " — preserved copy at " + bad + "; NOT overwriting.", e);
+  }
+}
+if (!loaded) {
+  // No usable file yet (fresh install or empty volume). Prefer a bundled
+  // migration snapshot of partner data if present; otherwise use defaults.
   try {
     state = JSON.parse(fs.readFileSync(SEED_FILE, "utf8"));
     reindexUid(state);
@@ -174,24 +186,35 @@ try {
     state = defaultState();
     console.log("Seeded fresh default board state.");
   }
-  // Write immediately so the persistent location is populated on first boot.
-  try { fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true }); } catch (_) {}
-  try { fs.writeFileSync(DATA_FILE, JSON.stringify(state)); } catch (err) { console.error("initial persist error", err); }
+  // Populate the persistent location on first boot only. Never clobber an
+  // existing file (it may be corrupt-but-recoverable partner data).
+  if (!dataFileExists) {
+    try { writeStateSync(); } catch (err) { console.error("initial persist error", err); }
+  }
+}
+
+// Atomic write: serialize to a temp file then rename over the real file. rename
+// is atomic on the same filesystem, so a crash mid-write can never leave a
+// half-written (corrupt) data.json that would be unreadable on the next boot.
+function writeStateSync() {
+  const tmp = DATA_FILE + ".tmp";
+  fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
+  fs.writeFileSync(tmp, JSON.stringify(state));
+  fs.renameSync(tmp, DATA_FILE);
 }
 
 let saveTimer = null;
 function persist() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    fs.writeFile(DATA_FILE, JSON.stringify(state), err => { if (err) console.error("persist error", err); });
+    try { writeStateSync(); } catch (err) { console.error("persist error", err); }
   }, 400);
 }
 // Write immediately and durably (used for imports and on shutdown) so nothing
 // is lost in the debounce window when the container is being redeployed.
 function persistSync() {
   clearTimeout(saveTimer);
-  try { fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true }); } catch (_) {}
-  try { fs.writeFileSync(DATA_FILE, JSON.stringify(state)); } catch (err) { console.error("persistSync error", err); }
+  try { writeStateSync(); } catch (err) { console.error("persistSync error", err); }
 }
 // Railway (and most platforms) send SIGTERM before replacing the container on a
 // redeploy; flush the latest state synchronously so in-flight edits survive.

@@ -70,6 +70,7 @@
   .inspector label{display:block;font-size:11px;color:var(--muted);margin:9px 0 3px;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
   .inspector input,.inspector select,.inspector textarea{width:100%;padding:7px 8px;border:1px solid var(--line);border-radius:7px;font-size:13px;font-family:inherit;box-sizing:border-box}
   .inspector textarea{resize:vertical;min-height:58px;line-height:1.4}
+  .kpilab{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 3px;font-weight:600}
   .savestat{font-size:11px;color:var(--muted);margin:2px 0 8px;display:flex;align-items:center;gap:5px;min-height:14px}
   .savestat .dot2{width:7px;height:7px;border-radius:50%;background:#3bb273}
   .savestat.saving .dot2{background:#e0a23b}
@@ -344,6 +345,11 @@ function renderInspector(){
     '<label>Start date</label><input id="f_start" type="date" min="'+META.origin+'" max="'+META.end+'">'+
     '<label>End date</label><input id="f_end" type="date" min="'+META.origin+'" max="'+META.end+'">'+
     '<div class="ckrow"><input type="checkbox" id="f_done"><label style="margin:0;text-transform:none;font-size:13px;color:var(--ink);letter-spacing:0">Completed</label></div>'+
+    '<label>Attendance (KPIs)</label>'+
+    '<div style="display:flex;gap:8px">'+
+      '<div style="flex:1"><div class="kpilab">Students</div><input id="f_students" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></div>'+
+      '<div style="flex:1"><div class="kpilab">Professionals</div><input id="f_pros" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></div>'+
+    '</div>'+
     '<label>Notes</label><textarea id="f_notes" placeholder="Details, context, to-dos…"></textarea>'+
     '<label>Link</label><input id="f_link" type="url" placeholder="https://…">'+
     '<div class="linkrow" id="f_linkrow"></div>'+
@@ -357,6 +363,8 @@ function renderInspector(){
   ins.querySelector("#f_start").value=it.start;
   ins.querySelector("#f_end").value=it.end;
   ins.querySelector("#f_done").checked=!!it.done;
+  ins.querySelector("#f_students").value=(it.students!=null?it.students:"");
+  ins.querySelector("#f_pros").value=(it.professionals!=null?it.professionals:"");
   ins.querySelector("#f_notes").value=it.notes||"";
   ins.querySelector("#f_link").value=it.link||"";
   const lane=ins.querySelector("#f_lane");
@@ -367,6 +375,8 @@ function renderInspector(){
   ins.querySelector("#f_start").onchange=e=>{ if(!e.target.value)return; it.start=e.target.value; if(off(it.end)<off(it.start)) it.end=it.start; emitUpsert(it);render();};
   ins.querySelector("#f_end").onchange=e=>{ if(!e.target.value)return; it.end=e.target.value; if(off(it.end)<off(it.start)) it.start=it.end; emitUpsert(it);render();};
   ins.querySelector("#f_done").onchange=e=>{it.done=e.target.checked;emitUpsert(it);render();};
+  ins.querySelector("#f_students").oninput=e=>{const v=e.target.value.trim();if(v===""){delete it.students;}else{it.students=Math.max(0,parseInt(v,10)||0);}emitUpsertDebounced(it);};
+  ins.querySelector("#f_pros").oninput=e=>{const v=e.target.value.trim();if(v===""){delete it.professionals;}else{it.professionals=Math.max(0,parseInt(v,10)||0);}emitUpsertDebounced(it);};
   ins.querySelector("#f_notes").oninput=e=>{it.notes=e.target.value;emitUpsertDebounced(it);markAtt(it);};
   ins.querySelector("#f_link").oninput=e=>{it.link=e.target.value;emitUpsertDebounced(it);renderLinkRow(it);markAtt(it);};
   ins.querySelector("#f_photobtn").onclick=()=>ins.querySelector("#f_photo").click();
@@ -386,6 +396,7 @@ const tipEl=document.getElementById("tip");
 function esc(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function showTip(e,it){
   let html=esc(labelOf(it))+'<div class="sub">'+it.start+' → '+it.end+(it.owner?' · '+esc(it.owner):'')+(isDone(it)?' · done':'')+'</div>';
+  if(it.students!=null||it.professionals!=null){ const kp=[]; if(it.students!=null)kp.push('🎓 '+it.students+' students'); if(it.professionals!=null)kp.push('👔 '+it.professionals+' professionals'); html+='<div class="sub" style="margin-top:4px">'+kp.join(' · ')+'</div>'; }
   if(it.notes){ const n=it.notes.length>160?it.notes.slice(0,157)+'…':it.notes; html+='<div class="sub" style="margin-top:4px;opacity:.95">'+esc(n)+'</div>'; }
   const marks=(it.link?'🔗 link ':'')+(it.photo?'📷 photo':''); if(marks.trim()){ html+='<div class="sub" style="margin-top:3px">'+marks.trim()+'</div>'; }
   tipEl.innerHTML=html;

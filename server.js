@@ -9,6 +9,7 @@ const fs = require("fs");
 const http = require("http");
 const express = require("express");
 const { Server } = require("socket.io");
+const mammoth = require("mammoth");
 
 const app = express();
 const server = http.createServer(app);
@@ -225,8 +226,139 @@ process.on("SIGINT", gracefulExit);
 
 const META = { origin: "2023-10-01", end: "2027-09-30", reportingStart: "2027-08-01" };
 
+// ---------------------------------------------------------------------------
+// Undo / redo — server-owned per-board history so it is consistent for every
+// collaborator. Each entry is a snapshot of a board's items taken BEFORE a
+// mutation. Capped at HIST_MAX steps; rapid edits to the same item coalesce
+// into a single step so typing a label is one undo, not one-per-keystroke.
+// ---------------------------------------------------------------------------
+const HIST_MAX = 10;
+const hist = {};
+function boardHist(board) { return hist[board] || (hist[board] = { undo: [], redo: [] }); }
+function snap(board) { return JSON.parse(JSON.stringify(state[board].items)); }
+let lastAct = { board: null, key: null, time: 0 };
+// Record the pre-mutation state. Call BEFORE changing state[board].items.
+// `key` truthy + same as the previous call within 1.5s => coalesced (no new step).
+function pushHistory(board, key) {
+  if (!state[board]) return;
+  const now = Date.now();
+  if (key && lastAct.board === board && lastAct.key === key && now - lastAct.time < 1500) { lastAct.time = now; return; }
+  lastAct = { board, key: key || null, time: now };
+  const h = boardHist(board);
+  h.undo.push(snap(board));
+  if (h.undo.length > HIST_MAX) h.undo.shift();
+  h.redo.length = 0;
+}
+function histStatus(board) {
+  const h = boardHist(board);
+  return { board, canUndo: h.undo.length > 0, canRedo: h.redo.length > 0 };
+}
+function emitHist(board) { io.emit("history:status", histStatus(board)); }
+
+// ---------------------------------------------------------------------------
+// Word document parsing — extract milestone candidates (a date + a label) from
+// an uploaded .docx. Handles tables (a date cell + description cells) and plain
+// paragraphs / list items that contain an inline date.
+// ---------------------------------------------------------------------------
+const MONTHS_IDX = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11,
+  january:0,february:1,march:2,april:3,june:5,july:6,august:7,september:8,october:9,november:10,december:11,sept:8 };
+const pad2 = n => String(n).padStart(2, "0");
+const iso = (y, m, d) => y + "-" + pad2(m + 1) + "-" + pad2(d);
+// Detect the first date in a string. Returns { date:"YYYY-MM-DD", match:"<text>" } or null.
+function detectDate(text) {
+  if (!text) return null;
+  let m;
+  // ISO 2026-03-01 or 2026/03/01
+  if ((m = text.match(/\b(20\d{2})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])\b/))) {
+    return { date: iso(+m[1], +m[2] - 1, +m[3]), match: m[0] };
+  }
+  // D Month YYYY  (1 October 2026 / 1st Oct 2026)
+  if ((m = text.match(/\b(0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?\s+(20\d{2})\b/))) {
+    const mo = MONTHS_IDX[m[2].toLowerCase()]; if (mo != null) return { date: iso(+m[3], mo, +m[1]), match: m[0] };
+  }
+  // Month D, YYYY  (October 1, 2026 / Oct 1 2026)
+  if ((m = text.match(/\b([A-Za-z]{3,9})\.?\s+(0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)?,?\s+(20\d{2})\b/))) {
+    const mo = MONTHS_IDX[m[1].toLowerCase()]; if (mo != null) return { date: iso(+m[3], mo, +m[2]), match: m[0] };
+  }
+  // DD/MM/YYYY (European order) or DD-MM-YYYY
+  if ((m = text.match(/\b(0?[1-9]|[12]\d|3[01])[-/.](0?[1-9]|1[0-2])[-/.](20\d{2})\b/))) {
+    return { date: iso(+m[3], +m[2] - 1, +m[1]), match: m[0] };
+  }
+  // Quarter: Q1 2026 -> first month of quarter
+  if ((m = text.match(/\bQ([1-4])\s*[-/ ]?\s*(20\d{2})\b/i))) {
+    return { date: iso(+m[2], (+m[1] - 1) * 3, 1), match: m[0] };
+  }
+  // Month YYYY (October 2026) -> first of month
+  if ((m = text.match(/\b([A-Za-z]{3,9})\.?\s+(20\d{2})\b/))) {
+    const mo = MONTHS_IDX[m[1].toLowerCase()]; if (mo != null) return { date: iso(+m[2], mo, 1), match: m[0] };
+  }
+  return null;
+}
+const stripTags = s => s.replace(/<[^>]+>/g, " ");
+const decodeEnt = s => s.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, " ");
+const cleanText = s => decodeEnt(stripTags(s)).replace(/\s+/g, " ").trim();
+// Parse mammoth HTML into milestone candidates [{date,label}].
+function parseMilestones(html) {
+  const out = [];
+  const seen = new Set();
+  const add = (date, label) => {
+    label = (label || "").replace(/\s+/g, " ").replace(/\s+([,.;:])/g, "$1").replace(/^[\s,.;:–-]+|[\s,.;:–-]+$/g, "").trim();
+    if (!date) return;
+    if (label.length > 160) label = label.slice(0, 157) + "…";
+    const key = date + "|" + label.toLowerCase();
+    if (seen.has(key)) return; seen.add(key);
+    out.push({ date, label: label || "Milestone" });
+  };
+  // Tables first: a row with a date cell becomes a milestone.
+  const tables = html.match(/<table[\s\S]*?<\/table>/gi) || [];
+  for (const tbl of tables) {
+    const rows = tbl.match(/<tr[\s\S]*?<\/tr>/gi) || [];
+    for (const row of rows) {
+      const cells = (row.match(/<t[dh][\s\S]*?<\/t[dh]>/gi) || []).map(cleanText);
+      if (!cells.length) continue;
+      let dateCell = -1, found = null;
+      for (let i = 0; i < cells.length; i++) { const d = detectDate(cells[i]); if (d) { dateCell = i; found = d; break; } }
+      if (!found) continue;
+      const others = cells.filter((_, i) => i !== dateCell).filter(Boolean);
+      let label = others.sort((a, b) => b.length - a.length)[0] || "";
+      // if the date cell carried extra words, use them when no other cell has text
+      if (!label) label = cleanText(cells[dateCell].replace(found.match, ""));
+      add(found.date, label);
+    }
+  }
+  // Then paragraphs / list items / headings with an inline date.
+  const htmlNoTables = html.replace(/<table[\s\S]*?<\/table>/gi, " ");
+  const blocks = htmlNoTables.match(/<(?:p|li|h[1-6])[^>]*>[\s\S]*?<\/(?:p|li|h[1-6])>/gi) || [];
+  for (const b of blocks) {
+    const t = cleanText(b);
+    const d = detectDate(t);
+    if (!d) continue;
+    add(d.date, cleanText(t.replace(d.match, " ")));
+  }
+  return out;
+}
+
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json({ limit: "30mb" }));
+
+// Parse an uploaded .docx and return milestone candidates (no state change).
+app.post("/parse-doc",
+  express.raw({ type: ["application/octet-stream", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"], limit: "25mb" }),
+  async (req, res) => {
+    try {
+      const buf = req.body;
+      if (!Buffer.isBuffer(buf) || buf.length < 4 || buf[0] !== 0x50 || buf[1] !== 0x4b) {
+        return res.status(400).json({ error: "Not a .docx file (expected a Word document)." });
+      }
+      const result = await mammoth.convertToHtml({ buffer: buf });
+      const milestones = parseMilestones(result.value || "");
+      res.json({ milestones, count: milestones.length });
+    } catch (err) {
+      console.error("parse-doc error", err);
+      res.status(500).json({ error: "Could not read that document." });
+    }
+  }
+);
 
 // --- One-time migration / backup endpoints (disabled unless ADMIN_TOKEN is set) ---
 // Used to snapshot the live partner data and load it onto a persistent volume
@@ -248,6 +380,7 @@ app.post("/admin/import", (req, res) => {
   }
   state = incoming;
   reindexUid(state);
+  for (const k of Object.keys(hist)) delete hist[k]; // history no longer applies
   persistSync();
   for (const board of Object.keys(state)) io.emit("board:replace", { board, data: state[board] });
   res.json({ ok: true, boards: Object.keys(state) });
@@ -263,33 +396,91 @@ io.on("connection", socket => {
     if (!state[board] || !item || !item.id) return;
     const arr = state[board].items;
     const i = arr.findIndex(x => x.id === item.id);
+    pushHistory(board, "upsert:" + item.id);
     if (i >= 0) arr[i] = item; else arr.push(item);
     socket.broadcast.emit("item:upsert", { board, item });
+    emitHist(board);
     persist();
   });
 
   socket.on("item:add", ({ board, item }, ack) => {
     if (!state[board] || !item) return;
+    pushHistory(board, null);
     item.id = nid();
     state[board].items.push(item);
     io.emit("item:upsert", { board, item });
+    emitHist(board);
     persist();
     if (typeof ack === "function") ack(item);
   });
 
+  // Add many items at once (e.g. milestones imported from a Word doc) as a
+  // single undo step.
+  socket.on("items:addBatch", ({ board, items }, ack) => {
+    if (!state[board] || !Array.isArray(items) || !items.length) { if (typeof ack === "function") ack({ count: 0 }); return; }
+    pushHistory(board, null);
+    const added = [];
+    for (const raw of items) {
+      if (!raw || typeof raw !== "object") continue;
+      const it = { id: nid(), type: raw.type || "milestone", lane: raw.lane | 0,
+        start: raw.start, end: raw.end || raw.start, label: (raw.label || "").slice(0, 200),
+        owner: (raw.owner || "").slice(0, 120), done: !!raw.done };
+      if (!it.start) continue;
+      state[board].items.push(it);
+      added.push(it);
+    }
+    io.emit("items:addBatch", { board, items: added });
+    emitHist(board);
+    persist();
+    if (typeof ack === "function") ack({ count: added.length });
+  });
+
   socket.on("item:remove", ({ board, id }) => {
     if (!state[board]) return;
+    pushHistory(board, null);
     state[board].items = state[board].items.filter(x => x.id !== id);
     socket.broadcast.emit("item:remove", { board, id });
+    emitHist(board);
     persist();
   });
 
   socket.on("board:reset", ({ board }) => {
     const fresh = defaultState();
     if (!fresh[board]) return;
+    pushHistory(board, null);
     state[board] = fresh[board];
     io.emit("board:replace", { board, data: state[board] });
+    emitHist(board);
     persist();
+  });
+
+  socket.on("history:undo", ({ board }) => {
+    const h = hist[board]; if (!h || !h.undo.length || !state[board]) return;
+    h.redo.push(snap(board));
+    if (h.redo.length > HIST_MAX) h.redo.shift();
+    state[board].items = h.undo.pop();
+    lastAct = { board: null, key: null, time: 0 };
+    io.emit("board:replace", { board, data: state[board] });
+    emitHist(board);
+    persist();
+  });
+
+  socket.on("history:redo", ({ board }) => {
+    const h = hist[board]; if (!h || !h.redo.length || !state[board]) return;
+    h.undo.push(snap(board));
+    if (h.undo.length > HIST_MAX) h.undo.shift();
+    state[board].items = h.redo.pop();
+    lastAct = { board: null, key: null, time: 0 };
+    io.emit("board:replace", { board, data: state[board] });
+    emitHist(board);
+    persist();
+  });
+
+  // A client asks for the current undo/redo availability of a board (on load
+  // and when switching tabs).
+  socket.on("history:query", ({ board }) => {
+    if (!state[board]) return;
+    socket.emit("history:status", histStatus(board));
   });
 
   socket.on("disconnect", () => { online = Math.max(0, online - 1); io.emit("presence", online); });

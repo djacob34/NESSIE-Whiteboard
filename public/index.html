@@ -22,6 +22,24 @@
   .btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 11px;cursor:pointer;font-size:13px;color:var(--navy);font-weight:600}
   .btn:hover{background:#eef4fb}
   .btn.danger{color:#b23b34;border-color:#f0c9c5}
+  .btn.primary{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .btn.primary:hover{background:#264a86}
+  .btn:disabled{opacity:.4;cursor:not-allowed;background:#fff}
+  .modal-bg{position:fixed;inset:0;background:rgba(20,30,50,.45);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px}
+  .modal{background:#fff;border-radius:14px;width:min(640px,96vw);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.3);padding:18px 20px}
+  .modal h3{margin:0 0 2px}
+  .modal-sub{font-size:13px;color:var(--muted);margin-bottom:12px}
+  .im-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;font-size:13px}
+  .im-controls label{display:flex;align-items:center;gap:5px;color:var(--muted);font-weight:600}
+  .im-controls select{padding:5px 7px;border:1px solid var(--line);border-radius:7px;font-size:13px}
+  .im-controls .spacer{flex:1}
+  .im-list{overflow:auto;border:1px solid var(--line);border-radius:9px;flex:1;min-height:120px}
+  .im-row{display:flex;align-items:center;gap:8px;padding:6px 9px;border-bottom:1px solid #eef1f5}
+  .im-row:last-child{border-bottom:none}
+  .im-row input[type=date]{border:1px solid var(--line);border-radius:6px;padding:4px 6px;font-size:12px}
+  .im-row input[type=text]{flex:1;border:1px solid var(--line);border-radius:6px;padding:5px 7px;font-size:13px;min-width:80px}
+  .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+  .im-empty{padding:24px;text-align:center;color:var(--muted);font-size:13px}
   .zoomdock{position:absolute;right:14px;bottom:18px;z-index:20;display:flex;align-items:center;gap:4px;background:rgba(255,255,255,.96);border:1px solid var(--line);border-radius:10px;padding:4px 6px;box-shadow:0 2px 10px rgba(0,0,0,.18)}
   .zoomdock .btn{padding:6px 10px;font-size:15px;line-height:1}
   .zoomdock .hint{margin:0}
@@ -105,9 +123,31 @@
 <div class="tabs" id="tabs"></div>
 
 <div class="toolbar">
+  <button class="btn" id="undoBtn" title="Undo (Ctrl/Cmd+Z)" disabled>&#8630; Undo</button>
+  <button class="btn" id="redoBtn" title="Redo (Ctrl/Cmd+Shift+Z)" disabled>Redo &#8631;</button>
+  <button class="btn" id="importBtn" title="Import milestones from a Word document">&#128196; Import Word doc</button>
   <button class="btn" id="pngBtn">Download PNG</button>
   <button class="btn danger" id="resetBtn">Reset this board</button>
+  <input type="file" id="docInput" accept=".docx" style="display:none">
   <span class="hint">Drag a task chip onto the board to add &middot; drag a bar to move &middot; drag its right edge to resize &middot; click to edit dates.</span>
+</div>
+<div class="modal-bg" id="importModal" style="display:none">
+  <div class="modal">
+    <h3 id="im_title">Import milestones</h3>
+    <div class="modal-sub" id="im_sub">Select which milestones to add.</div>
+    <div class="im-controls">
+      <label>Board <select id="im_board"></select></label>
+      <label>Lane <select id="im_lane"></select></label>
+      <span class="spacer"></span>
+      <button class="minibtn" id="im_all" type="button">Select all</button>
+      <button class="minibtn" id="im_none" type="button">Select none</button>
+    </div>
+    <div class="im-list" id="im_list"></div>
+    <div class="modal-actions">
+      <button class="btn" id="im_cancel" type="button">Cancel</button>
+      <button class="btn primary" id="im_add" type="button">Add milestones</button>
+    </div>
+  </div>
 </div>
 
 <div class="bank" id="bank"><span class="lbl">Task bank</span></div>
@@ -193,6 +233,7 @@ const isDone=it=>it.done||off(it.end)<todayOff();
 socket.on("init",({state,meta})=>{
   STATE=state; META=meta; ORIGIN=Date.parse(meta.origin+"T00:00:00Z"); END=Date.parse(meta.end+"T00:00:00Z");
   TOTAL=Math.round((END-ORIGIN)/DAY)+1; buildMonths(); buildTabs(); buildBank(); buildLegend(); render();
+  socket.emit("history:query",{board:current});
 });
 socket.on("presence",n=>document.getElementById("presence").textContent=n);
 socket.on("item:upsert",({board,item})=>{
@@ -202,6 +243,9 @@ socket.on("item:upsert",({board,item})=>{
 });
 socket.on("item:remove",({board,id})=>{ const b=STATE[board]; if(!b)return; b.items=b.items.filter(x=>x.id!==id); if(board===current){ if(selId===id)selId=null; render(); }});
 socket.on("board:replace",({board,data})=>{ STATE[board]=data; if(board===current){selId=null;render();}});
+socket.on("items:addBatch",({board,items})=>{ const b=STATE[board]; if(!b)return; for(const it of items){ const i=b.items.findIndex(x=>x.id===it.id); if(i>=0)b.items[i]=it; else b.items.push(it);} if(board===current)render(); });
+const histState={canUndo:false,canRedo:false};
+socket.on("history:status",({board,canUndo,canRedo})=>{ if(board!==current)return; histState.canUndo=canUndo; histState.canRedo=canRedo; const u=document.getElementById("undoBtn"),r=document.getElementById("redoBtn"); if(u)u.disabled=!canUndo; if(r)r.disabled=!canRedo; });
 
 // Don't rebuild the inspector (which would steal caret/focus) while the user is typing in it.
 function inspectorFocused(){ const a=document.activeElement; return !!a && document.getElementById("inspector").contains(a); }
@@ -224,7 +268,7 @@ function buildMonths(){
   }
 }
 function buildTabs(){ const t=document.getElementById("tabs");t.innerHTML="";
-  BOARDS.forEach(([id,name])=>{const e=document.createElement("div");e.className="tab"+(id===current?" active":"");e.textContent=name;e.onclick=()=>{current=id;selId=null;buildTabs();buildBank();render();};t.appendChild(e);});}
+  BOARDS.forEach(([id,name])=>{const e=document.createElement("div");e.className="tab"+(id===current?" active":"");e.textContent=name;e.onclick=()=>{current=id;selId=null;buildTabs();buildBank();render();document.getElementById("undoBtn").disabled=true;document.getElementById("redoBtn").disabled=true;socket.emit("history:query",{board:current});};t.appendChild(e);});}
 function buildLegend(){ const l=document.getElementById("legend");l.innerHTML="";
   LEGEND.forEach(([n,c])=>{const e=document.createElement("div");e.className="it";e.innerHTML='<span class="lc" style="background:'+c+'"></span>'+n;l.appendChild(e);});}
 function buildBank(){ const bk=document.getElementById("bank");bk.innerHTML='<span class="lbl">Task bank &middot; drag onto board</span>';
@@ -439,6 +483,77 @@ document.getElementById("resetBtn").onclick=()=>{ if(confirm("Reset the "+STATE[
 document.getElementById("pngBtn").onclick=()=>{ const node=document.getElementById("board");
   if(typeof html2canvas!=="function"){alert("PNG export needs internet to load the export library.");return;}
   html2canvas(node,{backgroundColor:"#ffffff",scale:2}).then(c=>{const a=document.createElement("a");a.download="NESSIE-timeline-"+current+".png";a.href=c.toDataURL("image/png");a.click();});};
+
+// ---- undo / redo ----
+document.getElementById("undoBtn").onclick=()=>{ if(!histState.canUndo)return; socket.emit("history:undo",{board:current}); };
+document.getElementById("redoBtn").onclick=()=>{ if(!histState.canRedo)return; socket.emit("history:redo",{board:current}); };
+function inFormField(){ const a=document.activeElement; return a && (a.tagName==="INPUT"||a.tagName==="TEXTAREA"||a.tagName==="SELECT"); }
+window.addEventListener("keydown",e=>{
+  if(document.getElementById("importModal").style.display!=="none"){ if(e.key==="Escape")closeImport(); return; }
+  const mod=e.metaKey||e.ctrlKey; if(!mod||inFormField())return;
+  const k=e.key.toLowerCase();
+  if(k==="z"&&!e.shiftKey){ e.preventDefault(); if(histState.canUndo)socket.emit("history:undo",{board:current}); }
+  else if((k==="z"&&e.shiftKey)||k==="y"){ e.preventDefault(); if(histState.canRedo)socket.emit("history:redo",{board:current}); }
+});
+
+// ---- import milestones from a Word doc ----
+let importCandidates=[];
+function laneIndexFor(board,preferred){ const lanes=STATE[board].lanes; const i=lanes.findIndex(n=>/milestone/i.test(n)); if(i>=0)return i; if(preferred!=null&&preferred<lanes.length)return preferred; return Math.max(0,lanes.length-1); }
+document.getElementById("importBtn").onclick=()=>document.getElementById("docInput").click();
+document.getElementById("docInput").onchange=async e=>{
+  const f=e.target.files&&e.target.files[0]; e.target.value="";
+  if(!f)return;
+  const btn=document.getElementById("importBtn"); const old=btn.textContent; btn.textContent="Reading…"; btn.disabled=true;
+  try{
+    const buf=await f.arrayBuffer();
+    const res=await fetch("/parse-doc",{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:buf});
+    const data=await res.json();
+    if(!res.ok){ alert(data.error||"Could not read that document."); return; }
+    importCandidates=(data.milestones||[]).map(m=>({date:m.date,label:m.label,on:true}));
+    openImport(f.name);
+  }catch(err){ alert("Could not read that document."); }
+  finally{ btn.textContent=old; btn.disabled=false; }
+};
+function openImport(filename){
+  const bsel=document.getElementById("im_board"); bsel.innerHTML="";
+  BOARDS.forEach(([id,name])=>{ const o=document.createElement("option"); o.value=id; o.textContent=name; if(id===current)o.selected=true; bsel.appendChild(o); });
+  fillLaneSelect(); bsel.onchange=fillLaneSelect;
+  document.getElementById("im_sub").textContent=filename+" — "+importCandidates.length+" milestone"+(importCandidates.length===1?"":"s")+" found. Review, edit, and choose which to add.";
+  renderImportList();
+  document.getElementById("importModal").style.display="flex";
+}
+function fillLaneSelect(){ const board=document.getElementById("im_board").value; const lsel=document.getElementById("im_lane"); lsel.innerHTML=""; const def=laneIndexFor(board,null); STATE[board].lanes.forEach((n,i)=>{ const o=document.createElement("option"); o.value=i; o.textContent=n; if(i===def)o.selected=true; lsel.appendChild(o); }); }
+function renderImportList(){
+  const list=document.getElementById("im_list"); list.innerHTML="";
+  if(!importCandidates.length){ list.innerHTML='<div class="im-empty">No dates were found in that document. You can still add milestones manually by dragging the “Milestone / deadline” chip onto the board.</div>'; document.getElementById("im_add").disabled=true; return; }
+  document.getElementById("im_add").disabled=false;
+  importCandidates.forEach((m,idx)=>{
+    const row=document.createElement("div"); row.className="im-row";
+    const cb=document.createElement("input"); cb.type="checkbox"; cb.checked=m.on; cb.onchange=()=>{m.on=cb.checked;updateAddCount();};
+    const dt=document.createElement("input"); dt.type="date"; dt.value=m.date; dt.min=META.origin; dt.max=META.end; dt.onchange=()=>{m.date=dt.value;};
+    const tx=document.createElement("input"); tx.type="text"; tx.value=m.label; tx.placeholder="Milestone label"; tx.oninput=()=>{m.label=tx.value;};
+    row.appendChild(cb); row.appendChild(dt); row.appendChild(tx); list.appendChild(row);
+  });
+  updateAddCount();
+}
+function updateAddCount(){ const n=importCandidates.filter(m=>m.on).length; document.getElementById("im_add").textContent="Add "+n+" milestone"+(n===1?"":"s"); document.getElementById("im_add").disabled=n===0; }
+function closeImport(){ document.getElementById("importModal").style.display="none"; importCandidates=[]; }
+document.getElementById("im_all").onclick=()=>{ importCandidates.forEach(m=>m.on=true); renderImportList(); };
+document.getElementById("im_none").onclick=()=>{ importCandidates.forEach(m=>m.on=false); renderImportList(); };
+document.getElementById("im_cancel").onclick=closeImport;
+document.getElementById("importModal").onclick=e=>{ if(e.target.id==="importModal")closeImport(); };
+document.getElementById("im_add").onclick=()=>{
+  const board=document.getElementById("im_board").value;
+  const lane=parseInt(document.getElementById("im_lane").value,10)||0;
+  const picked=importCandidates.filter(m=>m.on&&m.date).map(m=>({type:"milestone",lane,start:m.date,end:m.date,label:(m.label||"").trim()||"Milestone",owner:"",done:false}));
+  if(!picked.length){ closeImport(); return; }
+  socket.emit("items:addBatch",{board,items:picked},resp=>{
+    if(board!==current){ current=board; buildTabs(); buildBank(); }
+    render();
+    socket.emit("history:query",{board:current});
+  });
+  closeImport();
+};
 </script>
 </body>
 </html>
